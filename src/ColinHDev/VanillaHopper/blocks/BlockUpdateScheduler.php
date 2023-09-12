@@ -12,7 +12,7 @@ final class BlockUpdateScheduler {
 
     private int $currentTick = 0;
     private int $maxUpdatesPerTick;
-    /** @var array<int, int> */
+    /** @var int[][] */
     private array $updatesPerTick = [];
 
     public function __construct() {
@@ -25,6 +25,7 @@ final class BlockUpdateScheduler {
      */
     public function scheduleDelayedBlockUpdate(World $world, Vector3 $vector3, int $preferredDelay) : int {
         $actualDelay = $preferredDelay;
+        $folderName = $world->getFolderName();
         // Skip the following checks if it is disabled anyway.
         if ($this->maxUpdatesPerTick > 0) {
 
@@ -32,12 +33,12 @@ final class BlockUpdateScheduler {
             if ($this->currentTick !== $currentTick) {
                 $this->currentTick = $currentTick;
                 // Remove every tick of array that already happened.
-                // We can't remove the current tick, as ItemEntityManager runs a scheduled task and as seeable in
-                // Server::tick(), are schedulers ticked before the world. Therefore it is still possible to schedule
+                // We can't remove the current tick, as ItemEntityManager runs a scheduled task and as seen in
+                // Server::tick(), are schedulers ticked before the world. Therefore, it is still possible to schedule
                 // a block update for the current tick.
-                foreach ($this->updatesPerTick as $tick => $updates) {
+                foreach (($this->updatesPerTick[$folderName] ?? []) as $tick => $updates) {
                     if ($tick < $currentTick) {
-                        unset($this->updatesPerTick[$tick]);
+                        unset($this->updatesPerTick[$folderName][$tick]);
                         continue;
                     }
                     break;
@@ -46,16 +47,16 @@ final class BlockUpdateScheduler {
             $delayTick = $currentTick + $preferredDelay;
 
             // If no block updates are planned for the preferred tick, we can just schedule it then.
-            if (!isset($this->updatesPerTick[$delayTick])) {
-                $this->updatesPerTick[$delayTick] = 1;
+            if (!isset($this->updatesPerTick[$folderName][$delayTick])) {
+                $this->updatesPerTick[$folderName][$delayTick] = 1;
 
             // As long as the max block updates per tick aren't reached, we can just schedule it at that tick.
-            } elseif ($this->updatesPerTick[$delayTick] < $this->maxUpdatesPerTick) {
-                $this->updatesPerTick[$delayTick]++;
+            } elseif ($this->updatesPerTick[$folderName][$delayTick] < $this->maxUpdatesPerTick) {
+                $this->updatesPerTick[$folderName][$delayTick]++;
 
             } else {
                 // Loop through the updates to find the next tick which is not on the max value.
-                foreach ($this->updatesPerTick as $tick => $updates) {
+                foreach ($this->updatesPerTick[$folderName] as $tick => $updates) {
                     // Skip this tick because it is too early and before our preferred tick.
                     if ($tick <= $delayTick) {
                         continue;
@@ -73,11 +74,11 @@ final class BlockUpdateScheduler {
                 // If every tick in the array is on the max value, it could not found a suitable tick and change the $actualDelay variable.
                 if ($actualDelay === $preferredDelay) {
                     // Therefore the next possible tick would be after the last tick in the array.
-                    $delayTick = array_key_last($this->updatesPerTick) + 1;
-                    $this->updatesPerTick[$delayTick] = 1;
+                    $delayTick = array_key_last($this->updatesPerTick[$folderName]) + 1;
+                    $this->updatesPerTick[$folderName][$delayTick] = 1;
                     $actualDelay = $delayTick - $currentTick;
                 } else {
-                    $this->updatesPerTick[$delayTick]++;
+                    $this->updatesPerTick[$folderName][$delayTick]++;
                 }
             }
         }
